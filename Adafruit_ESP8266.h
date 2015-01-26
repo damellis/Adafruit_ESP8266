@@ -31,9 +31,9 @@ typedef const prog_char           Pchr; // Ditto, kindasorta
 
 // Subclassing Print makes debugging easier -- output en route to
 // WiFi module can be duplicated on a second stream (e.g. Serial).
-class Adafruit_ESP8266 : public Print {
+class Adafruit_ESP8266_Class : public Print {
  public:
-  Adafruit_ESP8266(Stream *s = &Serial, Stream *d = NULL, int8_t r = -1);
+  void begin(Stream *s = &Serial, Stream *d = NULL, int8_t r = -1);
   boolean   hardReset(void),
             softReset(void),
             find(Fstr *str = NULL, boolean ipd = false),
@@ -60,5 +60,7 @@ class Adafruit_ESP8266 : public Print {
   boolean   writing;
   virtual size_t write(uint8_t); // Because Print subclass
 };
+
+extern Adafruit_ESP8266_Class Adafruit_ESP8266;
 
 #endif // _ADAFRUIT_ESP8266_H_

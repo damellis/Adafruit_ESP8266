@@ -16,14 +16,18 @@
 
 #include "Adafruit_ESP8266.h"
 
-// Constructor
-Adafruit_ESP8266::Adafruit_ESP8266(Stream *s, Stream *d, int8_t r) :
- stream(s), debug(d), reset_pin(r), host(NULL), writing(false) {
+// Not the constructor
+void Adafruit_ESP8266_Class::begin(Stream *s, Stream *d, int8_t r) {
+  stream = s;
+  debug = d;
+  reset_pin = r;
+  host = NULL;
+  writing = false;
   setTimeouts();
 };
 
 // Override various timings.  Passing 0 for an item keeps current setting.
-void Adafruit_ESP8266::setTimeouts(
+void Adafruit_ESP8266_Class::setTimeouts(
  uint32_t rcv, uint32_t rst, uint32_t con, uint32_t ipd) {
   if(rcv) {
     stream->setTimeout(rcv);
@@ -35,13 +39,13 @@ void Adafruit_ESP8266::setTimeouts(
 }
 
 // Override boot marker string, or pass NULL to restore default.
-void Adafruit_ESP8266::setBootMarker(Fstr *s) {
+void Adafruit_ESP8266_Class::setBootMarker(Fstr *s) {
   bootMarker = s ? s : defaultBootMarker;
 }
 
 // Anything printed to the EPS8266 object will be split to both the WiFi
 // and debug streams.  Saves having to print everything twice in debug code.
-size_t Adafruit_ESP8266::write(uint8_t c) {
+size_t Adafruit_ESP8266_Class::write(uint8_t c) {
   if(debug) {
     if(!writing) {
       debug->print(F("---> "));
@@ -60,7 +64,7 @@ size_t Adafruit_ESP8266::write(uint8_t c) {
 // a CIPSEND request and might be broken into multiple sections with +IPD
 // delimiters, which must be parsed and handled (as the search string may
 // cross these delimiters and/or contain \r or \n itself).
-boolean Adafruit_ESP8266::find(Fstr *str, boolean ipd) {
+boolean Adafruit_ESP8266_Class::find(Fstr *str, boolean ipd) {
   uint8_t  stringLength, matchedLength = 0;
   int      c;
   boolean  found = false;
@@ -122,7 +126,7 @@ boolean Adafruit_ESP8266::find(Fstr *str, boolean ipd) {
 
 // Read from ESP8266 stream into RAM, up to a given size.  Max number of
 // chars read is 1 less than this, so NUL can be appended on string.
-int Adafruit_ESP8266::readLine(char *buf, int bufSiz) {
+int Adafruit_ESP8266_Class::readLine(char *buf, int bufSiz) {
   if(debug && writing) {
     debug->print(F("<--- '"));
     writing = false;
@@ -143,8 +147,9 @@ int Adafruit_ESP8266::readLine(char *buf, int bufSiz) {
 // pullup) -- setting to LOW provides an open-drain for reset.
 // Returns true if expected boot message is received (or if RST is unused),
 // false otherwise.
-boolean Adafruit_ESP8266::hardReset(void) {
+boolean Adafruit_ESP8266_Class::hardReset(void) {
   if(reset_pin < 0) return true;
+  writing = true;             // Not really, but will initiate incoming data
   digitalWrite(reset_pin, LOW);
   pinMode(reset_pin, OUTPUT); // Open drain; reset -> GND
   delay(10);                  // Hold a moment
@@ -153,10 +158,12 @@ boolean Adafruit_ESP8266::hardReset(void) {
 }
 
 // Soft reset.  Returns true if expected boot message received, else false.
-boolean Adafruit_ESP8266::softReset(void) {
+boolean Adafruit_ESP8266_Class::softReset(void) {
+  if (debug) debug->println(F("'"));
   boolean  found = false;
   uint32_t save  = receiveTimeout; // Temporarily override recveive timeout,
   receiveTimeout = resetTimeout;   // reset time is longer than normal I/O.
+  stream->setTimeout(resetTimeout);
   println(F("AT+RST"));            // Issue soft-reset command
   if(find(bootMarker)) {           // Wait for boot message
     println(F("ATE0"));            // Turn off echo
@@ -167,7 +174,7 @@ boolean Adafruit_ESP8266::softReset(void) {
 }
 
 // For interactive debugging...shuttle data between Serial Console <-> WiFi
-void Adafruit_ESP8266::debugLoop(void) {
+void Adafruit_ESP8266_Class::debugLoop(void) {
   if(!debug) for(;;); // If no debug connection, nothing to do.
 
   debug->println(F("\n========================"));
@@ -180,7 +187,7 @@ void Adafruit_ESP8266::debugLoop(void) {
 // Connect to WiFi access point.  SSID and password are flash-resident
 // strings.  May take several seconds to execute, this is normal.
 // Returns true on successful connection, false otherwise.
-boolean Adafruit_ESP8266::connectToAP(Fstr *ssid, Fstr *pass) {
+boolean Adafruit_ESP8266_Class::connectToAP(Fstr *ssid, Fstr *pass) {
   char buf[256];
 
   println(F("AT+CWMODE=1")); // WiFi mode = Sta
@@ -205,14 +212,14 @@ boolean Adafruit_ESP8266::connectToAP(Fstr *ssid, Fstr *pass) {
   return found;
 }
 
-void Adafruit_ESP8266::closeAP(void) {
+void Adafruit_ESP8266_Class::closeAP(void) {
   println(F("AT+CWQAP")); // Quit access point
   find(); // Purge 'OK'
 }
 
 // Open TCP connection.  Hostname is flash-resident string.
 // Returns true on successful connection, else false.
-boolean Adafruit_ESP8266::connectTCP(Fstr *h, int port) {
+boolean Adafruit_ESP8266_Class::connectTCP(Fstr *h, int port) {
 
   print(F("AT+CIPSTART=\"TCP\",\""));
   print(h);
@@ -226,7 +233,7 @@ boolean Adafruit_ESP8266::connectTCP(Fstr *h, int port) {
   return false;
 }
 
-void Adafruit_ESP8266::closeTCP(void) {
+void Adafruit_ESP8266_Class::closeTCP(void) {
   println(F("AT+CIPCLOSE"));
   find(F("Unlink\r\n"));
 }
@@ -236,7 +243,7 @@ void Adafruit_ESP8266::closeTCP(void) {
 // else false.  Calling function should then handle data returned, may
 // need to parse IPD delimiters (see notes in find() function.
 // (Can call find(F("Unlink"), true) to dump to debug.)
-boolean Adafruit_ESP8266::requestURL(Fstr *url) {
+boolean Adafruit_ESP8266_Class::requestURL(Fstr *url) {
   print(F("AT+CIPSEND="));
   println(25 + strlen_P((Pchr *)url) + strlen_P((Pchr *)host));
   if(find(F("> "))) { // Wait for prompt
@@ -249,3 +256,5 @@ boolean Adafruit_ESP8266::requestURL(Fstr *url) {
   }
   return false;
 }
+
+Adafruit_ESP8266_Class Adafruit_ESP8266;
