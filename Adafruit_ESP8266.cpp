@@ -145,11 +145,16 @@ int Adafruit_ESP8266::readLine(char *buf, int bufSiz) {
 // false otherwise.
 boolean Adafruit_ESP8266::hardReset(void) {
   if(reset_pin < 0) return true;
+  boolean  found = false;
+  uint32_t save  = receiveTimeout; // Temporarily override recveive timeout,
+  receiveTimeout = resetTimeout;   // reset time is longer than normal I/O.
   digitalWrite(reset_pin, LOW);
   pinMode(reset_pin, OUTPUT); // Open drain; reset -> GND
   delay(10);                  // Hold a moment
   pinMode(reset_pin, INPUT);  // Back to high-impedance pin state
-  return find(bootMarker);    // Purge boot message from stream
+  found = find(bootMarker);    // Purge boot message from stream
+  receiveTimeout = save;
+  return found;
 }
 
 // Soft reset.  Returns true if expected boot message received, else false.
