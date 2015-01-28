@@ -164,7 +164,6 @@ boolean Adafruit_ESP8266_Class::hardReset(void) {
 
 // Soft reset.  Returns true if expected boot message received, else false.
 boolean Adafruit_ESP8266_Class::softReset(void) {
-  if (debug) debug->println(F("'"));
   boolean  found = false;
   uint32_t save  = receiveTimeout; // Temporarily override recveive timeout,
   receiveTimeout = resetTimeout;   // reset time is longer than normal I/O.
