@@ -25,8 +25,7 @@
 #define ESP_CONNECT_TIMEOUT  15000L
 #define ESP_IPD_TIMEOUT     120000L
 
-#define NUM_TARGETS 4
-#define BUF_SIZE 64
+#define BUF_SIZE 2048
 
 typedef const __FlashStringHelper Fstr; // PROGMEM/flash-resident string
 typedef const prog_char           Pchr; // Ditto, kindasorta
@@ -40,7 +39,7 @@ class Adafruit_ESP8266_Class : public Print {
   void begin(Stream *s = &Serial, Stream *d = NULL, int8_t r = -1);
   boolean   hardReset(void),
             softReset(void),
-            find(Fstr *str = NULL, boolean ipd = false),
+            find(Fstr *str = NULL),
             connectToAP(Fstr *ssid, Fstr *pass),
             connectTCP(Fstr *host, int port),
             connectedTCP(void),
@@ -68,33 +67,29 @@ class Adafruit_ESP8266_Class : public Print {
   int8_t    reset_pin;  // -1 if RST not connected
   Fstr     *host,       // Non-NULL when TCP connection open
            *bootMarker; // String indicating successful boot
-  Fstr     *targets[NUM_TARGETS];
-  uint8_t   stringLength[NUM_TARGETS];
-  uint8_t   matchedLength[NUM_TARGETS];
-  boolean   found[NUM_TARGETS];
   boolean   writing;
-  boolean   ipd;
-  uint16_t  bytesToGo;
-  uint8_t   buf[BUF_SIZE];
-  uint16_t  head, tail;
+//  uint16_t  bytesToGo;  // bytes left in incoming IPD packet
+  uint8_t   buf[BUF_SIZE]; // stores incoming IPD data
+  uint16_t  head, tail; // head = next buf index to write to
+                        // tail = next buf index to read from
   virtual size_t write(uint8_t); // Because Print subclass
 };
 
-class Adafruit_ESP8266_Client : public Client {
-public:
-  virtual int connect(IPAddress ip, uint16_t port);
-  virtual int connect(const char *host, uint16_t port);
-  virtual size_t write(uint8_t);
-  virtual size_t write(const uint8_t *buf, size_t size);
-  virtual int available();
-  virtual int read();
-  virtual int read(uint8_t *buf, size_t size);
-  virtual int peek();
-  virtual void flush();
-  virtual void stop();
-  virtual uint8_t connected();
-  virtual operator bool();
-};
+//class Adafruit_ESP8266_Client : public Client {
+//public:
+//  virtual int connect(IPAddress ip, uint16_t port);
+//  virtual int connect(const char *host, uint16_t port);
+//  virtual size_t write(uint8_t);
+//  virtual size_t write(const uint8_t *buf, size_t size);
+//  virtual int available();
+//  virtual int read();
+//  virtual int read(uint8_t *buf, size_t size);
+//  virtual int peek();
+//  virtual void flush();
+//  virtual void stop();
+//  virtual uint8_t connected();
+//  virtual operator bool();
+//};
 
 extern Adafruit_ESP8266_Class Adafruit_ESP8266;
 

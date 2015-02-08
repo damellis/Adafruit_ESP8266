@@ -16,6 +16,8 @@
 
 #include "Adafruit_ESP8266.h"
 
+#define strIPD F("+IPD")
+
 // Not the constructor
 void Adafruit_ESP8266_Class::begin(Stream *s, Stream *d, int8_t r) {
   stream = s;
@@ -23,12 +25,6 @@ void Adafruit_ESP8266_Class::begin(Stream *s, Stream *d, int8_t r) {
   reset_pin = r;
   host = NULL;
   writing = false;
-  targets[0] = F("+IPD"); stringLength[0] = 4;
-  for (int i = 1; i < NUM_TARGETS; i++) {
-    targets[i] = NULL;
-    stringLength[i] = 0;
-    matchedLength[i] = 0;
-  }
   buf[0] = 0; head = 0; tail = 0;
   setTimeouts();
 };
@@ -67,82 +63,33 @@ size_t Adafruit_ESP8266_Class::write(uint8_t c) {
 // flash/PROGMEM rather than RAM-resident.  Returns true if string found
 // (any further pending input remains in stream), false if timeout occurs.
 // Can optionally pass NULL (or no argument) to read/purge the OK+CR/LF
-// returned by most AT commands.  The ipd flag indicates this call follows
-// a CIPSEND request and might be broken into multiple sections with +IPD
-// delimiters, which must be parsed and handled (as the search string may
-// cross these delimiters and/or contain \r or \n itself).
-boolean Adafruit_ESP8266_Class::find(Fstr *str, boolean ipd) {
+// returned by most AT commands.
+//
+// Looks for unsolicited +IPD messages (incoming TCP data) and stores any
+// received data to a buffer (for retrieval with readTCP(), etc.). Does not
+// do any searching within this +IPD (incoming TCP) data.
+boolean Adafruit_ESP8266_Class::find(Fstr *str) {
   uint8_t  stringLength, matchedLength = 0;
+  uint8_t  stringLengthIPD, matchedLengthIPD = 0;
   int      c;
   boolean  found = false;
-  uint32_t t, save;
+  uint32_t t, save = 0;
   uint16_t bytesToGo = 0;
-
-  if(ipd) { // IPD stream stalls really long occasionally, what gives?
-    save = receiveTimeout;
-    setTimeouts(ipdTimeout);
-  }
 
   if(str == NULL) str = F("OK\r\n");
   stringLength = strlen_P((Pchr *)str);
-
-  if(debug && writing) {
-    debug->print(F("<--- '"));
-    writing = false;
-  }
+  stringLengthIPD = strlen_P((Pchr *)strIPD);
 
   for(t = millis();;) {
-    if(ipd && !bytesToGo) {  // Expecting next IPD marker?
-      if(find(F("+IPD,"))) { // Find marker in stream
-        for(;;) {
-          if((c = stream->read()) > 0) { // Read subsequent chars...
-            if(debug) debug->write(c);
-            if(c == ':') break;          // ...until delimiter.
-            bytesToGo = (bytesToGo * 10) + (c - '0'); // Keep count
-            t = millis();    // Timeout resets w/each byte received
-          } else if(c < 0) { // No data on stream, check for timeout
-            if((millis() - t) > receiveTimeout) goto bail;
-          } else goto bail; // EOD on stream
-        }
-      } else break; // OK (EOD) or ERROR
-    }
-
     if((c = stream->read()) > 0) { // Character received?
-      if(debug) debug->write(c);   // Copy to debug stream
-      bytesToGo--;
-      if(c == pgm_read_byte((Pchr *)str +
-              matchedLength)) {               // Match next byte?
-        if(++matchedLength == stringLength) { // Matched whole string?
-          found = true;                       // Winner!
-          break;
-        }
-      } else {          // Character mismatch; reset match pointer+counter
-        matchedLength = 0;
-      }
       t = millis();     // Timeout resets w/each byte received
-    } else if(c < 0) {  // No data on stream, check for timeout
-      if((millis() - t) > receiveTimeout) break; // You lose, good day sir
-    } else break;       // End-of-data on stream
-  }
 
-  bail: // Sorry, dreaded goto.  Because nested loops.
-  if(debug) debug->println('\'');
-  if(ipd) setTimeouts(save);
-  return found;
-}
-
-void Adafruit_ESP8266_Class::poll() {
-  uint32_t t;
-  uint8_t c;
-  
-  for(t = millis();;) {
-    if((c = stream->read()) > 0) {
       if(debug) {
         if(writing) {
           debug->print(F("<--- '"));
           writing = false;
         }
-        debug->write(c);
+        debug->write(c);   // Copy to debug stream
       }
       
       if(bytesToGo > 0) { // in a "+IPD" packet
@@ -151,30 +98,54 @@ void Adafruit_ESP8266_Class::poll() {
         head = next;
         if (head == tail) tail = (tail + 1) % BUF_SIZE;
         bytesToGo--;
+        if (bytesToGo == 0) {
+          setTimeouts(save);
+        }
       } else {
-        for(int i = 0; i < NUM_TARGETS; i++) {
-          if (targets[i] != NULL) {
-            if (c == pgm_read_byte((Pchr *)targets[i] + matchedLength[i])) {
-              if (++matchedLength[i] == stringLength[i]) {
-                found[i] = true;
-                if (i == 0) { // found "+IPD"; read packet length
-                  for(;;) {
-                    if((c = stream->read()) > 0) { // Read subsequent chars...
-                      if(debug) debug->write(c);
-                      if(c == ':') break;          // ...until delimiter.
-                      bytesToGo = (bytesToGo * 10) + (c - '0'); // Keep count
-                    }
-                  }
+        if((stringLength > 0) && (c == pgm_read_byte((Pchr *)str +
+                                  matchedLength))) { // Match next byte?
+          if(++matchedLength == stringLength) { // Matched whole string?
+            found = true;                       // Winner!
+            break;
+          }
+        } else {          // Character mismatch; reset match pointer+counter
+          matchedLength = 0;
+        }
+        if(c == pgm_read_byte((Pchr *)strIPD +
+                              matchedLengthIPD)) { // Match next byte?
+          if(++matchedLengthIPD == stringLengthIPD) { // Matched whole string?
+            for(;;) {
+              if((c = stream->read()) > 0) { // Read subsequent chars...
+                if(debug) debug->write(c);
+                if(c == ':') {          // ...until delimiter.
+                  save = receiveTimeout;
+                  setTimeouts(ipdTimeout);
+                  break;
                 }
-              }
-            } else {          // Character mismatch; reset match pointer+counter
-              matchedLength[i] = 0;
+                bytesToGo = (bytesToGo * 10) + (c - '0'); // Keep count
+                t = millis();    // Timeout resets w/each byte received
+              } else if(c < 0) { // No data on stream, check for timeout
+                if((millis() - t) > receiveTimeout) goto bail;
+              } else goto bail; // EOD on stream
             }
           }
+        } else {          // Character mismatch; reset match pointer+counter
+          matchedLengthIPD = 0;
         }
       }
-    }
+    } else if(c < 0) {  // No data on stream, check for timeout
+      if((millis() - t) > receiveTimeout) break; // You lose, good day sir
+    } else break;       // End-of-data on stream
   }
+
+  bail: // Sorry, dreaded goto.  Because nested loops.
+  if(debug) debug->println('\'');
+  if (save != 0) setTimeouts(save);
+  return found;
+}
+
+void Adafruit_ESP8266_Class::poll() {
+  find(F(""));
 }
 
 // Read from ESP8266 stream into RAM, up to a given size.  Max number of
@@ -248,6 +219,7 @@ boolean Adafruit_ESP8266_Class::connectToAP(Fstr *ssid, Fstr *pass) {
   char buf[256];
 
   println(F("AT+CWMODE=1")); // WiFi mode = Sta
+  delay(2000);
   readLine(buf, sizeof(buf));
   if(!(strstr_P(buf, (Pchr *)F("OK")) ||
        strstr_P(buf, (Pchr *)F("no change")))) return false;
@@ -282,7 +254,7 @@ boolean Adafruit_ESP8266_Class::connectTCP(Fstr *h, int port) {
   print(h);
   print(F("\","));
   println(port);
-
+  
   if(find(F("Linked"))) {
     host = h;
     return true;
@@ -323,14 +295,14 @@ boolean Adafruit_ESP8266_Class::writeTCP(uint8_t *buf, size_t size) {
 }
 
 int Adafruit_ESP8266_Class::peekTCP(void) {
-  // call poll() here?
+  poll();
   if (tail == head) return -1;
   return buf[tail];
 }
 
 int Adafruit_ESP8266_Class::readTCP(void) {
-  // call poll() here?
   uint8_t c;
+  poll();
   if (tail == head) return -1;
   c = buf[tail];
   tail = (tail + 1) % BUF_SIZE;
@@ -338,6 +310,7 @@ int Adafruit_ESP8266_Class::readTCP(void) {
 }
 
 int Adafruit_ESP8266_Class::availableTCP(void) {
+  poll();
   return (head < tail) ? (head + BUF_SIZE - tail) : (head - tail);
 }
 
