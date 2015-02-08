@@ -25,7 +25,7 @@
 #define ESP_CONNECT_TIMEOUT  15000L
 #define ESP_IPD_TIMEOUT     120000L
 
-#define BUF_SIZE 2048
+#define BUF_SIZE 1024
 
 typedef const __FlashStringHelper Fstr; // PROGMEM/flash-resident string
 typedef const prog_char           Pchr; // Ditto, kindasorta

@@ -16,7 +16,7 @@
 
 #include "Adafruit_ESP8266.h"
 
-#define strIPD F("+IPD")
+#define strIPD F("+IPD,")
 
 // Not the constructor
 void Adafruit_ESP8266_Class::begin(Stream *s, Stream *d, int8_t r) {
@@ -145,7 +145,7 @@ boolean Adafruit_ESP8266_Class::find(Fstr *str) {
 }
 
 void Adafruit_ESP8266_Class::poll() {
-  find(F(""));
+  if (tail == head) find(F("")); // if there's no data already, check for some
 }
 
 // Read from ESP8266 stream into RAM, up to a given size.  Max number of
