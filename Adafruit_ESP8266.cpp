@@ -23,6 +23,13 @@ void Adafruit_ESP8266_Class::begin(Stream *s, Stream *d, int8_t r) {
   reset_pin = r;
   host = NULL;
   writing = false;
+  targets[0] = F("+IPD"); stringLength[0] = 4;
+  for (int i = 1; i < NUM_TARGETS; i++) {
+    targets[i] = NULL;
+    stringLength[i] = 0;
+    matchedLength[i] = 0;
+  }
+  buf[0] = 0; head = 0; tail = 0;
   setTimeouts();
 };
 
@@ -122,6 +129,52 @@ boolean Adafruit_ESP8266_Class::find(Fstr *str, boolean ipd) {
   if(debug) debug->println('\'');
   if(ipd) setTimeouts(save);
   return found;
+}
+
+void Adafruit_ESP8266_Class::poll() {
+  uint32_t t;
+  uint8_t c;
+  
+  for(t = millis();;) {
+    if((c = stream->read()) > 0) {
+      if(debug) {
+        if(writing) {
+          debug->print(F("<--- '"));
+          writing = false;
+        }
+        debug->write(c);
+      }
+      
+      if(bytesToGo > 0) { // in a "+IPD" packet
+        uint16_t next = (head + 1) % BUF_SIZE;
+        buf[head] = c;
+        head = next;
+        if (head == tail) tail = (tail + 1) % BUF_SIZE;
+        bytesToGo--;
+      } else {
+        for(int i = 0; i < NUM_TARGETS; i++) {
+          if (targets[i] != NULL) {
+            if (c == pgm_read_byte((Pchr *)targets[i] + matchedLength[i])) {
+              if (++matchedLength[i] == stringLength[i]) {
+                found[i] = true;
+                if (i == 0) { // found "+IPD"; read packet length
+                  for(;;) {
+                    if((c = stream->read()) > 0) { // Read subsequent chars...
+                      if(debug) debug->write(c);
+                      if(c == ':') break;          // ...until delimiter.
+                      bytesToGo = (bytesToGo * 10) + (c - '0'); // Keep count
+                    }
+                  }
+                }
+              }
+            } else {          // Character mismatch; reset match pointer+counter
+              matchedLength[i] = 0;
+            }
+          }
+        }
+      }
+    }
+  }
 }
 
 // Read from ESP8266 stream into RAM, up to a given size.  Max number of
@@ -240,6 +293,52 @@ boolean Adafruit_ESP8266_Class::connectTCP(Fstr *h, int port) {
 void Adafruit_ESP8266_Class::closeTCP(void) {
   println(F("AT+CIPCLOSE"));
   find(F("Unlink\r\n"));
+  host = NULL;
+}
+
+boolean Adafruit_ESP8266_Class::connectedTCP(void) {
+  // connection open or unread data remaining in buffer
+  return (host != NULL || head != tail);
+}
+
+// Write byte over the currently-open TCP connection.
+boolean Adafruit_ESP8266_Class::writeTCP(uint8_t c) {
+  println(F("AT+CIPSEND=1"));
+  if(find(F("> "))) { // Wait for prompt
+    print(c);
+    return(find()); // Gets 'SEND OK' line
+  }
+  return false;
+}
+
+// Write bytes over the currently-open TCP connection.
+boolean Adafruit_ESP8266_Class::writeTCP(uint8_t *buf, size_t size) {
+  print(F("AT+CIPSEND="));
+  println(size);
+  if(find(F("> "))) { // Wait for prompt
+    for (int i = 0; i < size; i++) print(buf[i]);
+    return(find()); // Gets 'SEND OK' line
+  }
+  return false;
+}
+
+int Adafruit_ESP8266_Class::peekTCP(void) {
+  // call poll() here?
+  if (tail == head) return -1;
+  return buf[tail];
+}
+
+int Adafruit_ESP8266_Class::readTCP(void) {
+  // call poll() here?
+  uint8_t c;
+  if (tail == head) return -1;
+  c = buf[tail];
+  tail = (tail + 1) % BUF_SIZE;
+  return c;
+}
+
+int Adafruit_ESP8266_Class::availableTCP(void) {
+  return (head < tail) ? (head + BUF_SIZE - tail) : (head - tail);
 }
 
 // Requests page from currently-open TCP connection.  URL is
